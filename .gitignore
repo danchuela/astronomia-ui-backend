@@ -1,0 +1,28 @@
+.venv
+venv
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Certificados / claves
+*.pem
+*.crt
+*.cer
+*.key
+*.p12
+*.pfx
+
+# Claude Code (local)
+CLAUDE.md
