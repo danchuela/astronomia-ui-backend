@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import unicodedata
 from typing import Literal
 
 from openai import OpenAI
@@ -14,6 +16,41 @@ logger = logging.getLogger(__name__)
 Intent = Literal["galaxy_analysis", "observation_planning"]
 
 _DEFAULT_INTENT: Intent = "galaxy_analysis"
+_SOLAR_SYSTEM_PATTERNS = [
+    r"\bsistema\s+solar\b",
+    r"\bsol\b",
+    r"\bsolar(es)?\b",
+    r"\bluna\b",
+    r"\blunar(es)?\b",
+    r"\bmercurio\b",
+    r"\bmercury\b",
+    r"\bvenus\b",
+    r"\bmarte\b",
+    r"\bmars\b",
+    r"\bjupiter\b",
+    r"\bsaturno\b",
+    r"\bsaturn\b",
+    r"\burano\b",
+    r"\buranus\b",
+    r"\bneptuno\b",
+    r"\bneptune\b",
+    r"\bpluton\b",
+    r"\bpluto\b",
+    r"\bcometa\b",
+    r"\bcometas\b",
+    r"\bcomet\b",
+    r"\basteroide\b",
+    r"\basteroides\b",
+    r"\basteroid\b",
+    r"\beclipse\b",
+    r"\beclipses\b",
+    r"\bmeteoro\b",
+    r"\bmeteoros\b",
+    r"\bmeteorito\b",
+    r"\bmeteoritos\b",
+    r"\bmeteor\b",
+    r"\bmeteor\s+shower\b",
+]
 
 _SYSTEM_PROMPT = """\
 Eres un clasificador de intenciones para una plataforma de astronomia.
@@ -22,15 +59,31 @@ Clasifica el mensaje del usuario en UNA de estas categorias:
 1. "galaxy_analysis" — quiere ver, analizar, segmentar o medir un objeto celeste.
    NO menciona ubicacion terrestre ni momento temporal para observar.
    Ejemplos: "analiza M31", "muestrame NGC 1300 en infrarrojo", "morfologia de M87"
+   Incluye objetos de cielo profundo como cumulos, nebulosas o galaxias:
+   "quiero ver las Pleyades", "muestrame Orion", "busca M45".
 
 2. "observation_planning" — quiere planificar una observacion desde un lugar concreto.
    Menciona ubicacion (ciudad, pais, coordenadas terrestres) y/o tiempo
    ("esta noche", "manana", "cuando puedo ver").
    Ejemplos: "quiero observar M31 desde Barcelona", "cuando puedo ver Saturno desde Madrid"
+   SIEMPRE usa esta categoria para objetos del Sistema Solar, aunque no mencione
+   ubicacion ni fecha: Sol, Luna, Mercurio, Venus, Marte, Jupiter, Saturno,
+   Urano, Neptuno, Pluton, cometas o asteroides.
 
 Responde SOLO con JSON: {"intent": "galaxy_analysis"} o {"intent": "observation_planning"}
 Si el mensaje es ambiguo o no encaja, responde {"intent": "galaxy_analysis"}.\
 """
+
+
+def _normalize_text(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text.casefold())
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def is_solar_system_request(message: str) -> bool:
+    """Return True when the message references Solar System targets."""
+    normalized = _normalize_text(message)
+    return any(re.search(pattern, normalized) for pattern in _SOLAR_SYSTEM_PATTERNS)
 
 
 class IntentClassifier:
@@ -44,6 +97,12 @@ class IntentClassifier:
         """Classify the intent of the user message."""
         if not message or not message.strip():
             return _DEFAULT_INTENT
+        if is_solar_system_request(message):
+            logger.info(
+                "intent_classified",
+                extra={"intent": "observation_planning", "reason": "solar_system_target"},
+            )
+            return "observation_planning"
         try:
             response = await asyncio.to_thread(self._call_openai, message)
             data = json.loads(response)
