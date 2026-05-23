@@ -51,6 +51,32 @@ _SOLAR_SYSTEM_PATTERNS = [
     r"\bmeteor\b",
     r"\bmeteor\s+shower\b",
 ]
+_GENERAL_INFO_PATTERNS = [
+    r"\bque\s+(es|son)\b",
+    r"\bque\s+sabes\s+(de|sobre|acerca\s+de)\b",
+    r"\bque\s+tipo\s+de\s+objeto\b",
+    r"\bcual(es)?\s+(es|son)\b.*\b(distancia|magnitud|redshift|corrimiento|tipo|caracteristicas|propiedades)\b",
+    r"\b(con|de)\s+que\s+caracteristicas\b",
+    r"\bcaracteristicas?\s+especial(es)?\b",
+    r"\b(cuentame|hablame|describe|explica|explicame)\b",
+    r"\b(info|informacion|datos|curiosidades|propiedades)\b",
+    r"\b(distancia|magnitud|redshift|corrimiento|constelacion|descubrimiento|historia|peculiar|especial)\b",
+]
+_IMAGE_ANALYSIS_PATTERNS = [
+    r"\banaliz(a|ar|ame|alo|ala|alo|ala|emos|is)\b",
+    r"\banalisis\b",
+    r"\bmorfologia\b",
+    r"\bmorfologic[oa]s?\b",
+    r"\bsegment(a|ar|acion)\b",
+    r"\bisofotas?\b",
+    r"\bfotometria\b",
+    r"\bperfil\s+de\s+brillo\b",
+    r"\bsersic\b",
+    r"\bcas\b",
+    r"\bcontornos?\b",
+    r"\bmed(ir|icion|iciones|idas?)\b",
+    r"\bcalcul(a|ar)\b",
+]
 
 _SYSTEM_PROMPT = """\
 Eres un clasificador de intenciones para una plataforma de astronomia.
@@ -69,6 +95,10 @@ Clasifica el mensaje del usuario en UNA de estas categorias:
    SIEMPRE usa esta categoria para objetos del Sistema Solar, aunque no mencione
    ubicacion ni fecha: Sol, Luna, Mercurio, Venus, Marte, Jupiter, Saturno,
    Urano, Neptuno, Pluton, cometas o asteroides.
+   Tambien usa esta categoria para preguntas informativas generales sobre un
+   cuerpo u objeto celeste cuando NO piden abrir visor ni analizar imagen.
+   Ejemplos: "que es UGC10214", "con que caracteristicas especiales cuenta UGC10214",
+   "cuentame sobre M81", "cual es la distancia de M87".
 
 Responde SOLO con JSON: {"intent": "galaxy_analysis"} o {"intent": "observation_planning"}
 Si el mensaje es ambiguo o no encaja, responde {"intent": "galaxy_analysis"}.\
@@ -86,6 +116,16 @@ def is_solar_system_request(message: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in _SOLAR_SYSTEM_PATTERNS)
 
 
+def is_general_information_request(message: str) -> bool:
+    """Return True for general info questions handled by the n8n knowledge flow."""
+    normalized = _normalize_text(message)
+    if not normalized.strip():
+        return False
+    if any(re.search(pattern, normalized) for pattern in _IMAGE_ANALYSIS_PATTERNS):
+        return False
+    return any(re.search(pattern, normalized) for pattern in _GENERAL_INFO_PATTERNS)
+
+
 class IntentClassifier:
     """Routes user messages to the correct backend using lightweight LLM classification."""
 
@@ -101,6 +141,12 @@ class IntentClassifier:
             logger.info(
                 "intent_classified",
                 extra={"intent": "observation_planning", "reason": "solar_system_target"},
+            )
+            return "observation_planning"
+        if is_general_information_request(message):
+            logger.info(
+                "intent_classified",
+                extra={"intent": "observation_planning", "reason": "general_information"},
             )
             return "observation_planning"
         try:
