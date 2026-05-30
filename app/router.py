@@ -51,6 +51,33 @@ _SOLAR_SYSTEM_PATTERNS = [
     r"\bmeteor\b",
     r"\bmeteor\s+shower\b",
 ]
+# Frases que indican intencion EXPLICITA de planificacion observacional.
+# Si aparece cualquiera de estos patrones, el mensaje debe ir SIEMPRE a n8n
+# (observation_planning), aunque el objeto consultado sea de cielo profundo y no
+# se mencione ubicacion ni fecha. Resuelve el bug en el que "quiero ver la carta
+# de visibilidad de M31" caia al clasificador LLM y terminaba en galaxy_analysis.
+_OBSERVATION_INTENT_PATTERNS = [
+    # "carta/cartas de visibilidad"
+    r"\bcartas?\s+de\s+visibilidad\b",
+    # "carta/cartas de observacion(es)"
+    r"\bcartas?\s+de\s+observacion(es)?\b",
+    # "ventana/ventanas de observacion(es)"
+    r"\bventanas?\s+de\s+observacion(es)?\b",
+    # "horario(s) de observacion(es)"
+    r"\bhorarios?\s+de\s+observacion(es)?\b",
+    # "plan/planificacion de observacion(es)"
+    r"\b(plan|planificacion)\s+de\s+observacion(es)?\b",
+    # "planificar (la) observacion(es)"
+    r"\bplanificar\s+(la\s+)?observacion(es)?\b",
+    # "planificacion observacional"
+    r"\bplanificacion\s+observacional\b",
+    # "cuando (puedo/podre/podria) observar"
+    r"\bcuando\s+(puedo|podre|podria)?\s*observar\b",
+    # "(es|sera) visible"
+    r"\b(es|sera)\s+visible\b",
+    # "se podra/puede observar/ver"
+    r"\bse\s+(podra|puede)\s+(observar|ver)\b",
+]
 _GENERAL_INFO_PATTERNS = [
     r"\bque\s+(es|son)\b",
     r"\bque\s+sabes\s+(de|sobre|acerca\s+de)\b",
@@ -95,6 +122,11 @@ Clasifica el mensaje del usuario en UNA de estas categorias:
    SIEMPRE usa esta categoria para objetos del Sistema Solar, aunque no mencione
    ubicacion ni fecha: Sol, Luna, Mercurio, Venus, Marte, Jupiter, Saturno,
    Urano, Neptuno, Pluton, cometas o asteroides.
+   SIEMPRE usa esta categoria cuando aparezcan frases que indiquen intencion
+   explicita de planificacion observacional: "carta de visibilidad", "carta de
+   observacion", "ventana de observacion", "cuando observar", "planificacion
+   observacional", "es visible", aunque no se mencione ubicacion ni fecha y el
+   objeto sea de cielo profundo.
    Tambien usa esta categoria para preguntas informativas generales sobre un
    cuerpo u objeto celeste cuando NO piden abrir visor ni analizar imagen.
    Ejemplos: "que es UGC10214", "con que caracteristicas especiales cuenta UGC10214",
@@ -114,6 +146,19 @@ def is_solar_system_request(message: str) -> bool:
     """Return True when the message references Solar System targets."""
     normalized = _normalize_text(message)
     return any(re.search(pattern, normalized) for pattern in _SOLAR_SYSTEM_PATTERNS)
+
+
+def is_observation_intent_request(message: str) -> bool:
+    """Return True cuando el mensaje contiene una frase de planificacion explicita.
+
+    Se aplica antes que el clasificador LLM para garantizar que peticiones como
+    "carta de visibilidad de M31" o "ventana de observacion de NGC1300" se
+    enruten siempre a observation_planning (n8n), independientemente del objeto.
+    """
+    normalized = _normalize_text(message)
+    if not normalized.strip():
+        return False
+    return any(re.search(pattern, normalized) for pattern in _OBSERVATION_INTENT_PATTERNS)
 
 
 def is_general_information_request(message: str) -> bool:
@@ -141,6 +186,15 @@ class IntentClassifier:
             logger.info(
                 "intent_classified",
                 extra={"intent": "observation_planning", "reason": "solar_system_target"},
+            )
+            return "observation_planning"
+        # Cazamos primero las frases explicitas de planificacion (cartas de
+        # visibilidad, ventanas de observacion, etc.) para que nunca caigan al
+        # LLM y se clasifiquen erroneamente como galaxy_analysis.
+        if is_observation_intent_request(message):
+            logger.info(
+                "intent_classified",
+                extra={"intent": "observation_planning", "reason": "observation_intent_phrase"},
             )
             return "observation_planning"
         if is_general_information_request(message):
