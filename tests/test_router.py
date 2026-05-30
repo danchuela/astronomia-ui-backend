@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from app.router import IntentClassifier, is_general_information_request, is_solar_system_request
+from app.router import (
+    IntentClassifier,
+    is_general_information_request,
+    is_observation_intent_request,
+    is_solar_system_request,
+)
 
 
 @pytest.mark.parametrize(
@@ -65,6 +70,59 @@ def test_detects_general_information_requests(message: str) -> None:
 )
 def test_viewer_and_analysis_requests_are_not_general_information(message: str) -> None:
     assert not is_general_information_request(message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "quiero ver la carta de visibilidad de M31",
+        "muestrame la carta de observacion de NGC 1300",
+        "necesito una ventana de observacion para Andromeda",
+        "cuando observar la galaxia del Sombrero",
+        "cuando puedo observar M51",
+        "planificacion observacional para M81",
+        "plan de observacion de las Pleyades",
+        "horario de observacion de M87",
+        "es visible UGC10214 esta noche",
+    ],
+)
+def test_detects_observation_intent_requests(message: str) -> None:
+    # Cualquier frase con intencion explicita de planificacion debe disparar
+    # el detector, independientemente del objeto (cielo profundo incluido).
+    assert is_observation_intent_request(message)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "quiero ver M87",
+        "muestrame NGC 1300",
+        "analiza M51",
+        "morfologia de M87",
+        "cuentame sobre M81",
+    ],
+)
+def test_pure_analysis_or_info_is_not_observation_intent(message: str) -> None:
+    # Las peticiones de analisis o informacion pura NO deben activar el detector
+    # de planificacion observacional.
+    assert not is_observation_intent_request(message)
+
+
+@pytest.mark.asyncio
+async def test_observation_intent_classification_bypasses_llm() -> None:
+    # Verifica el fix del bug: una frase con "carta de visibilidad" debe
+    # rutearse a observation_planning sin llegar a llamar al LLM.
+    classifier = IntentClassifier.__new__(IntentClassifier)
+
+    async def fail_if_called() -> str:
+        raise AssertionError("LLM should not be called for explicit observation phrases")
+
+    classifier._call_openai = fail_if_called  # type: ignore[method-assign]
+
+    assert (
+        await classifier.classify("quiero ver la carta de visibilidad de M31")
+        == "observation_planning"
+    )
 
 
 @pytest.mark.asyncio
