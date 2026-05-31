@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,3 +34,25 @@ class AnalyzeResponse(BaseModel):
     results: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[dict[str, str]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+class FeedbackRequest(BaseModel):
+    """Datos de feedback enviados por el usuario desde el frontend.
+
+    - request_id: identificador de la interaccion a la que se refiere el feedback
+      (mismo id que se usa en /analyze; permite cruzar con el log de Sheets).
+    - rating: valoracion binaria "up" / "down" (pulgares).
+    - comment: comentario libre opcional (cuando el usuario abre el modal grande).
+    - user_email: email opcional; solo si la persona quiere ser contactada.
+    """
+
+    request_id: str
+    rating: Literal["up", "down"]
+    comment: str | None = None
+    user_email: str | None = None
+
+
+class FeedbackResponse(BaseModel):
+    """Respuesta del endpoint de feedback."""
+
+    status: str
