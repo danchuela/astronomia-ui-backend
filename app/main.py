@@ -21,7 +21,7 @@ from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
 from app.router import IntentClassifier
-from app.schemas import AnalyzeRequest, AnalyzeResponse
+from app.schemas import AnalyzeRequest, AnalyzeResponse, FeedbackRequest, FeedbackResponse
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,54 @@ async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
                 "summary": f"Error del backend: {str(e)}",
             },
         ) from e
+
+
+@app.post("/feedback", response_model=FeedbackResponse)
+async def feedback(request: FeedbackRequest) -> FeedbackResponse:
+    """Recibe el feedback del usuario y lo reenvia al webhook de n8n.
+
+    El webhook de n8n se encarga de escribir la fila en la pestania "feedback"
+    de la hoja de Google Sheets. El BFF solo actua como proxy para evitar
+    exponer la URL del webhook al frontend (y por consistencia con /analyze).
+    """
+    settings = get_settings()
+    if not settings.n8n_feedback_webhook_url:
+        # Si la URL no esta configurada respondemos 503 para que el frontend
+        # sepa que el feedback no se esta capturando (estado degradado pero
+        # no critico).
+        raise HTTPException(
+            status_code=503,
+            detail="Feedback endpoint no esta configurado (falta N8N_FEEDBACK_WEBHOOK_URL).",
+        )
+
+    # Solo enviamos a n8n los campos que realmente necesita guardar.
+    # exclude_none deja fuera los opcionales que no rellena el usuario.
+    payload = request.model_dump(exclude_none=True)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(settings.n8n_feedback_webhook_url, json=payload)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.exception(
+            "feedback_forward_failed",
+            extra={"request_id": request.request_id},
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo registrar el feedback: {e}",
+        ) from e
+
+    logger.info(
+        "feedback_recorded",
+        extra={
+            "request_id": request.request_id,
+            "rating": request.rating,
+            "has_comment": request.comment is not None,
+            "has_email": request.user_email is not None,
+        },
+    )
+    return FeedbackResponse(status="success")
 
 
 @app.post("/analyze/stream")
