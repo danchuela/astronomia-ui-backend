@@ -3,11 +3,39 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
 from app.gateways.base import AnalysisGateway
 from app.schemas import AnalyzeRequest, AnalyzeResponse
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_artifacts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _as_warnings(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None]
+
+
+def _normalize_response(data: dict[str, Any], request: AnalyzeRequest) -> AnalyzeResponse:
+    return AnalyzeResponse(
+        request_id=data.get("request_id") or request.request_id,
+        status=data.get("status") or "success",
+        summary=data.get("summary") or "",
+        results=_as_dict(data.get("results")),
+        artifacts=_as_artifacts(data.get("artifacts")),
+        warnings=_as_warnings(data.get("warnings")),
+    )
 
 
 class N8nGateway(AnalysisGateway):
@@ -31,14 +59,7 @@ class N8nGateway(AnalysisGateway):
             resp.raise_for_status()
             data = resp.json()
 
-        return AnalyzeResponse(
-            request_id=data.get("request_id", request.request_id),
-            status=data.get("status", "success"),
-            summary=data.get("summary", ""),
-            results=data.get("results", {}),
-            artifacts=data.get("artifacts", []),
-            warnings=data.get("warnings", []),
-        )
+        return _normalize_response(data, request)
 
     async def analyze_stream(self, request: AnalyzeRequest) -> AsyncIterator[bytes]:
         if not self.webhook_url:
@@ -81,16 +102,18 @@ class N8nGateway(AnalysisGateway):
             )
             return
 
-        request_id = data.get("request_id", request.request_id)
-        status = data.get("status", "success")
-        summary = data.get("summary", "")
-        artifacts = data.get("artifacts", [])
+        response = _normalize_response(data, request)
+        request_id = response.request_id
+        status = response.status
+        summary = response.summary
+        artifacts = response.artifacts
 
         if summary:
             yield self._sse_event("summary", {"type": "summary", "summary": summary})
 
         html_artifact = next(
-            (a for a in artifacts if a.get("format") == "html" or a.get("type") == "html"), None
+            (a for a in artifacts if a.get("format") == "html" or a.get("type") == "html"),
+            None,
         )
         if html_artifact:
             yield self._sse_event("artifacts", {
