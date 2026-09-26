@@ -60,6 +60,17 @@ def _last_user_message(request: AnalyzeRequest) -> str:
     return ""
 
 
+def _previous_user_message(request: AnalyzeRequest) -> str | None:
+    """Return the user message before the current one, if the conversation has one."""
+    user_messages = [m.content for m in (request.messages or []) if m.role == "user"]
+    # The frontend sends the history INCLUDING the current message as the last item.
+    if request.message and user_messages and user_messages[-1] == request.message:
+        user_messages = user_messages[:-1]
+    elif not request.message and user_messages:
+        user_messages = user_messages[:-1]
+    return user_messages[-1] if user_messages else None
+
+
 async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
     """Select the appropriate gateway based on the orchestration mode."""
     settings = get_settings()
@@ -72,7 +83,9 @@ async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
         return _observation_gateway
 
     assert _classifier is not None
-    intent = await _classifier.classify(_last_user_message(request))
+    intent = await _classifier.classify(
+        _last_user_message(request), previous_message=_previous_user_message(request)
+    )
     logger.info(
         "request_routed",
         extra={"intent": intent, "request_id": request.request_id},
@@ -131,9 +144,7 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
         gateway = await _select_gateway(request)
         gateway_name = _gateway_name(gateway)
         usage_log.send_event(
-            usage_log.received_event(
-                request, gateway_name, http_request.headers.get("user-agent")
-            )
+            usage_log.received_event(request, gateway_name, http_request.headers.get("user-agent"))
         )
         response = await gateway.analyze(request)
         usage_log.send_event(
