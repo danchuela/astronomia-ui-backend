@@ -20,6 +20,7 @@ class Settings:
     galaxy_api_key: str
     n8n_webhook_url: str
     n8n_feedback_webhook_url: str
+    n8n_log_webhook_url: str
     openai_model: str
     openai_api_key: str
     cors_origins: list[str]
@@ -39,6 +40,8 @@ class Settings:
         galaxy_api_key = _env("GALAXY_API_KEY", "")
         n8n_webhook_url = _env("N8N_WEBHOOK_URL", "").rstrip("/")
         n8n_feedback_webhook_url = _env("N8N_FEEDBACK_WEBHOOK_URL", "").rstrip("/")
+        # Usage log webhook (see app/usage_log.py). Empty = usage logging disabled.
+        n8n_log_webhook_url = _env("N8N_LOG_WEBHOOK_URL", "").rstrip("/")
         openai_model = _env("OPENAI_MODEL", "gpt-4.1-mini")
         openai_api_key = _env("OPENAI_API_KEY", "")
 
@@ -51,6 +54,7 @@ class Settings:
             galaxy_api_key=galaxy_api_key,
             n8n_webhook_url=n8n_webhook_url,
             n8n_feedback_webhook_url=n8n_feedback_webhook_url,
+            n8n_log_webhook_url=n8n_log_webhook_url,
             openai_model=openai_model,
             openai_api_key=openai_api_key,
             cors_origins=cors_origins,

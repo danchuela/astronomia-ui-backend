@@ -6,6 +6,7 @@ Uses an optional LLM classifier in auto mode to select the gateway per request.
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 import httpx
@@ -13,10 +14,11 @@ from dotenv import load_dotenv
 
 load_dotenv(override=False)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
+from app import usage_log
 from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
@@ -80,6 +82,11 @@ async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
     return _galaxy_gateway
 
 
+def _gateway_name(gateway: AnalysisGateway) -> str:
+    """Short label stored in the usage log: 'n8n' or 'galaxy' (Galaxy API)."""
+    return "n8n" if gateway is _observation_gateway else "galaxy"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -117,12 +124,37 @@ def health() -> dict[str, str]:
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
+async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResponse:
+    started_at = time.monotonic()
+    gateway_name = "unknown"
     try:
         gateway = await _select_gateway(request)
-        return await gateway.analyze(request)
+        gateway_name = _gateway_name(gateway)
+        usage_log.send_event(
+            usage_log.received_event(
+                request, gateway_name, http_request.headers.get("user-agent")
+            )
+        )
+        response = await gateway.analyze(request)
+        usage_log.send_event(
+            usage_log.completed_event(
+                request_id=request.request_id,
+                gateway=gateway_name,
+                status=response.status,
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
+        )
+        return response
     except Exception as e:
         logger.exception("analyze_failed", extra={"request_id": request.request_id})
+        usage_log.send_event(
+            usage_log.completed_event(
+                request_id=request.request_id,
+                gateway=gateway_name,
+                status="error",
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
+        )
         raise HTTPException(
             status_code=502,
             detail={
@@ -182,10 +214,21 @@ async def feedback(request: FeedbackRequest) -> FeedbackResponse:
 
 
 @app.post("/analyze/stream")
-async def analyze_stream(request: AnalyzeRequest) -> StreamingResponse:
+async def analyze_stream(request: AnalyzeRequest, http_request: Request) -> StreamingResponse:
+    started_at = time.monotonic()
     gateway = await _select_gateway(request)
+    gateway_name = _gateway_name(gateway)
+    usage_log.send_event(
+        usage_log.received_event(request, gateway_name, http_request.headers.get("user-agent"))
+    )
     return StreamingResponse(
-        gateway.analyze_stream(request),
+        # Stream passes through unchanged; the wrapper only logs how it ended.
+        usage_log.logged_stream(
+            gateway.analyze_stream(request),
+            request_id=request.request_id,
+            gateway=gateway_name,
+            started_at=started_at,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
