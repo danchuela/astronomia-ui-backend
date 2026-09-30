@@ -44,6 +44,10 @@ CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 
 ## Running locally
 
+The auto-mode router defaults to `OPENAI_MODEL=gpt-6-luna` with
+`reasoning_effort="none"`. Existing model overrides remain supported.
+Existing deployments must update their environment explicitly to use Luna.
+
 1. Start the Galaxy API on `:8000` (in its repo: `make run`).
 2. Start the BFF:
    ```bash
@@ -64,6 +68,25 @@ The BFF listens on `http://localhost:3000`. The Galaxy API must be reachable on 
 ## n8n mode
 
 Use n8n as a routing layer between the frontend and backend services.
+
+### Luna development workflow
+
+Export only the current astronomIA workflow from n8n, then run:
+
+```bash
+python scripts/prepare_n8n_luna.py source.json luna-dev.json
+```
+
+The script migrates the four LLM requests to GPT-6 Luna, uses
+`max_completion_tokens`, and sets `reasoning_effort="none"`. It creates a new,
+unpublished workflow with `-luna-dev` webhook paths. Database writes, Telegram
+notifications, and the production error workflow are disabled in this copy.
+The source workflow and its credentials are not modified. Keep exports private;
+do not commit them. Import the output in n8n and use test execution until promotion.
+
+For promotion, apply the model changes to a fresh production export, preserving
+its identity, webhook paths, logging and alerts. Do not publish the isolated dev
+copy as a replacement for production.
 
 1. Set `ORCHESTRATOR_MODE=n8n` and `N8N_WEBHOOK_URL=<url>` in `.env`.
 2. The BFF forwards all requests to the webhook. n8n decides how to route them.
