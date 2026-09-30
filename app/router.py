@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Literal
 
-from openai import OpenAI
+from openai import NOT_GIVEN, OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,35 @@ _OBSERVATION_INTENT_PATTERNS = [
     r"\b(es|sera)\s+visible\b",
     # "se podra/puede observar/ver"
     r"\bse\s+(podra|puede)\s+(observar|ver)\b",
+    # Open questions asking for suggestions (answered by the n8n "suggest" mode):
+    # "que puedo/podria ver u observar", "que hay para ver"
+    r"\bque\s+(puedo|podria|podre|se\s+puede)\s+(ver|observar|mirar)\b",
+    r"\bque\s+hay\s+para\s+(ver|observar|mirar)\b",
+    # "sugerime", "sugiereme", "sugerencia(s)", "recomendame", "recomiendame", "que me recomendas"
+    r"\bsug(ie|e)r\w*",
+    r"\brecom(ie|e)nd\w*",
+    # "a simple vista"
+    r"\ba\s+simple\s+vista\b",
+]
+# Phrases that ask to SEE or ANALYSE an image. A follow-up with one of these is
+# not treated as a continuation of a planning conversation (see classify()).
+_VIEWER_PATTERNS = [
+    r"\bmuestra(me|lo|la)?\b",
+    r"\bmostra(me|lo|la)?\b",
+    r"\bimagen(es)?\b",
+    r"\bfotos?\b",
+    r"\binfrarrojo\b",
+    r"\bultravioleta\b",
+    r"\bvisor\b",
+]
+# Cues that a message was about observing from somewhere at some time.
+# Only used on the PREVIOUS user message, to keep short follow-ups
+# ("y mañana?", "y desde Madrid?") in the planning conversation.
+_PLANNING_CONTEXT_PATTERNS = [
+    r"\bdesde\s+\w+",
+    r"\besta\s+noche\b",
+    r"\bmanana\b",
+    r"\bhoy\b",
 ]
 _GENERAL_INFO_PATTERNS = [
     r"\bque\s+(es|son)\b",
@@ -171,15 +200,41 @@ def is_general_information_request(message: str) -> bool:
     return any(re.search(pattern, normalized) for pattern in _GENERAL_INFO_PATTERNS)
 
 
+def is_viewer_or_analysis_request(message: str) -> bool:
+    """Return True when the user explicitly asks to see or analyse an image."""
+    normalized = _normalize_text(message)
+    return any(
+        re.search(pattern, normalized) for pattern in _IMAGE_ANALYSIS_PATTERNS + _VIEWER_PATTERNS
+    )
+
+
+def is_planning_conversation(previous_message: str | None) -> bool:
+    """Return True when the previous user message was clearly about planning an observation."""
+    if not previous_message or not previous_message.strip():
+        return False
+    normalized = _normalize_text(previous_message)
+    if is_viewer_or_analysis_request(previous_message):
+        return False
+    return (
+        is_solar_system_request(previous_message)
+        or is_observation_intent_request(previous_message)
+        or any(re.search(pattern, normalized) for pattern in _PLANNING_CONTEXT_PATTERNS)
+    )
+
+
 class IntentClassifier:
     """Routes user messages to the correct backend using lightweight LLM classification."""
 
-    def __init__(self, model: str = "gpt-4.1-mini") -> None:
+    def __init__(self, model: str = "gpt-6-luna") -> None:
         self._client = OpenAI()
         self._model = model
 
-    async def classify(self, message: str) -> Intent:
-        """Classify the intent of the user message."""
+    async def classify(self, message: str, previous_message: str | None = None) -> Intent:
+        """Classify the intent of the user message.
+
+        ``previous_message`` is the user's previous message in the conversation,
+        used to keep follow-ups of a planning conversation in n8n.
+        """
         if not message or not message.strip():
             return _DEFAULT_INTENT
         if is_solar_system_request(message):
@@ -203,6 +258,17 @@ class IntentClassifier:
                 extra={"intent": "observation_planning", "reason": "general_information"},
             )
             return "observation_planning"
+        # Conversation context: a follow-up of a planning conversation stays in
+        # planning ("no sé, sugerime vos", "y mañana?"), unless the user now asks
+        # explicitly to see or analyse an image.
+        if is_planning_conversation(previous_message) and not is_viewer_or_analysis_request(
+            message
+        ):
+            logger.info(
+                "intent_classified",
+                extra={"intent": "observation_planning", "reason": "planning_conversation_context"},
+            )
+            return "observation_planning"
         try:
             response = await asyncio.to_thread(self._call_openai, message)
             data = json.loads(response)
@@ -220,6 +286,7 @@ class IntentClassifier:
         """Synchronous OpenAI call executed in a thread via asyncio.to_thread."""
         response = self._client.chat.completions.create(
             model=self._model,
+            reasoning_effort="none" if self._model.startswith("gpt-6-luna") else NOT_GIVEN,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
