@@ -42,7 +42,7 @@ class Settings:
         n8n_feedback_webhook_url = _env("N8N_FEEDBACK_WEBHOOK_URL", "").rstrip("/")
         # Usage log webhook (see app/usage_log.py). Empty = usage logging disabled.
         n8n_log_webhook_url = _env("N8N_LOG_WEBHOOK_URL", "").rstrip("/")
-        openai_model = _env("OPENAI_MODEL", "gpt-4.1-mini")
+        openai_model = _env("OPENAI_MODEL", "gpt-6-luna")
         openai_api_key = _env("OPENAI_API_KEY", "")
 
         raw = _env("CORS_ORIGINS", "http://localhost:5173")

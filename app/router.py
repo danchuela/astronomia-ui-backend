@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Literal
 
-from openai import OpenAI
+from openai import NOT_GIVEN, OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def is_planning_conversation(previous_message: str | None) -> bool:
 class IntentClassifier:
     """Routes user messages to the correct backend using lightweight LLM classification."""
 
-    def __init__(self, model: str = "gpt-4.1-mini") -> None:
+    def __init__(self, model: str = "gpt-6-luna") -> None:
         self._client = OpenAI()
         self._model = model
 
@@ -286,6 +286,7 @@ class IntentClassifier:
         """Synchronous OpenAI call executed in a thread via asyncio.to_thread."""
         response = self._client.chat.completions.create(
             model=self._model,
+            reasoning_effort="none" if self._model.startswith("gpt-6-luna") else NOT_GIVEN,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
