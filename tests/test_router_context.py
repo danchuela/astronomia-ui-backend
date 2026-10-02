@@ -12,11 +12,12 @@ import json
 
 import pytest
 
-from app.main import _previous_user_message
+from app.main import _previous_assistant_message, _previous_user_message
 from app.router import (
     IntentClassifier,
     is_observation_intent_request,
     is_planning_conversation,
+    is_planning_question,
 )
 from app.schemas import AnalyzeRequest
 
@@ -182,3 +183,85 @@ def test_previous_user_message_without_message_field() -> None:
 def test_previous_user_message_first_turn() -> None:
     assert _previous_user_message(_req("hola", [("user", "hola")])) is None
     assert _previous_user_message(_req("hola", [])) is None
+
+
+# ---------------------------------------------- answer to a planner's question
+# Real case (2026-09-26): "Para ver a Sirio" -> n8n asked for the date -> "Hoy"
+# was classified by the LLM and sent to the Galaxy API.
+
+_ASKS_DATE = (
+    "Para planificar la observación de Sirio, necesito saber en qué fecha te gustaría "
+    "observarla. ¿Me puedes indicar la fecha?"
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("current", ["Hoy", "mañana", "el sábado", "Córdoba", "desde Rosario"])
+async def test_answer_to_a_planning_question_stays_in_planning(current: str) -> None:
+    classifier = _classifier_without_llm()
+    intent = await classifier.classify(
+        current, previous_message="Para ver a Sirio", previous_assistant_message=_ASKS_DATE
+    )
+    assert intent == "observation_planning"
+
+
+@pytest.mark.asyncio
+async def test_image_request_after_a_planning_question_is_not_forced() -> None:
+    classifier = _classifier_without_llm("galaxy_analysis")
+    intent = await classifier.classify(
+        "muéstrame la imagen de Sirio",
+        previous_message="Para ver a Sirio",
+        previous_assistant_message=_ASKS_DATE,
+    )
+    assert intent == "galaxy_analysis"
+
+
+@pytest.mark.parametrize(
+    ("assistant", "expected"),
+    [
+        (_ASKS_DATE, True),
+        ("¡Con gusto te sugiero qué observar! ¿Desde qué ciudad vas a mirar el cielo?", True),
+        ("¿Desde dónde quieres observar M31, y cuándo?", True),
+        ("No pude encontrar esa ubicación. ¿Me dices la ciudad más cercana?", True),
+        # Galaxy API replies: no planning question
+        (
+            "Aquí tienes Sirius. Ajusta el encuadre, el zoom y la banda en el visor como "
+            "prefieras. Cuando estés listo, dime qué quieres analizar.",
+            False,
+        ),
+        ("¿Qué quieres analizar: morfología, segmentación o fotometría?", False),
+        # A statement with a date but no question
+        ("La noche del 30 de septiembre Saturno se ve a las 01:00. Fecha: 30/09.", False),
+        # Independent review (2026-09-27): galaxy replies that mention a date/position
+        ("Imagen DSS2 (fecha de adquisición 1993). ¿Quieres que la segmente?", False),
+        ("Su ubicación en el cielo es la constelación de Virgo. ¿Quieres ver otra banda?", False),
+        # ...and planner questions phrased in other ways
+        ("¿Para cuándo quieres observar Sirio?", True),
+        ("¿Qué día te gustaría observarlo?", True),
+        ("Necesito saber desde dónde vas a observar.", True),
+        ("¿Cuándo quieres observarla?", True),
+        # "cuándo" about something else (Galaxy API)
+        ("¿Quieres saber cuándo fue descubierta?", False),
+        ("¿Quieres ver cuándo se tomó la imagen?", False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_planning_question(assistant: str | None, expected: bool) -> None:
+    assert is_planning_question(assistant) is expected
+
+
+def test_previous_assistant_message() -> None:
+    req = _req(
+        "Hoy",
+        [
+            ("user", "Que puedo ver hoy en cordoba"),
+            ("assistant", "(sugerencias)"),
+            ("user", "Para ver a Sirio"),
+            ("assistant", _ASKS_DATE),
+            ("user", "Hoy"),
+        ],
+    )
+    assert _previous_assistant_message(req) == _ASKS_DATE
+    assert _previous_assistant_message(_req("hola", [("user", "hola")])) is None
+    assert _previous_assistant_message(_req("hola", [])) is None
