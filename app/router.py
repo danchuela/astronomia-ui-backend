@@ -107,6 +107,30 @@ _PLANNING_CONTEXT_PATTERNS = [
     r"\bmanana\b",
     r"\bhoy\b",
 ]
+# Cues that the ASSISTANT's previous reply was the n8n planner asking for a missing
+# detail ("¿en qué fecha?", "¿desde qué ciudad?"). The user's answer ("Hoy",
+# "Córdoba") must go back to the planner even if it says nothing else.
+# Real case (2026-09-26): "Para ver a Sirio" -> "¿Me puedes indicar la fecha?" -> "Hoy"
+# was sent to the Galaxy API. Only the QUESTION sentences of the reply are checked,
+# so a galaxy reply that mentions a date ("fecha de adquisición 1993. ¿La segmento?")
+# does not count.
+_PLANNING_QUESTION_PATTERNS = [
+    r"\bfecha\b",
+    # "¿para cuándo?", "¿cuándo quieres observarlo?"
+    # but not "¿quieres saber cuándo fue descubierta?"
+    r"\bpara\s+cuando\b",
+    r"\bcuando\s+(quieres|queres|te\s+gustaria|vas\s+a|piensas|pensas|planeas)\b",
+    r"\bque\s+(dia|noche)\b",
+    r"\bdesde\s+(que|donde)\b",
+    r"\bciudad\b",
+    r"\bubicacion\b",
+    r"\bplanific\w*",
+    r"\bcartas?\s+de\s+(observacion|visibilidad)\b",
+]
+# Sentences that ask for something without a question mark ("Necesito saber desde dónde.")
+_REQUEST_SENTENCE = re.compile(r"\b(necesito\s+saber|necesito\s+que\s+me|indicame|decime|dime)\b")
+
+
 _GENERAL_INFO_PATTERNS = [
     r"\bque\s+(es|son)\b",
     r"\bque\s+sabes\s+(de|sobre|acerca\s+de)\b",
@@ -208,6 +232,31 @@ def is_viewer_or_analysis_request(message: str) -> bool:
     )
 
 
+def _asks_planning_detail(sentence: str) -> bool:
+    """Check one sentence of the assistant's reply.
+
+    A question ("¿para cuándo?") may use any planning cue. A request without a
+    question mark ("Necesito saber desde dónde.") must name the missing detail itself,
+    so "Cuando estés listo, dime qué quieres analizar" (Galaxy API) does not count.
+    """
+    normalized = _normalize_text(sentence)
+    if "?" in sentence:
+        return any(re.search(p, normalized) for p in _PLANNING_QUESTION_PATTERNS)
+    if _REQUEST_SENTENCE.search(normalized):
+        return bool(
+            re.search(r"\bfecha\b|\bdesde\s+(que|donde)\b|\bciudad\b|\bubicacion\b", normalized)
+        )
+    return False
+
+
+def is_planning_question(assistant_message: str | None) -> bool:
+    """Return True when the assistant's previous reply asked for a planning detail."""
+    if not assistant_message or not assistant_message.strip():
+        return False
+    sentences = re.split(r"(?<=[.!?\n])\s+|¿", assistant_message)
+    return any(_asks_planning_detail(sentence) for sentence in sentences)
+
+
 def is_planning_conversation(previous_message: str | None) -> bool:
     """Return True when the previous user message was clearly about planning an observation."""
     if not previous_message or not previous_message.strip():
@@ -229,11 +278,17 @@ class IntentClassifier:
         self._client = OpenAI()
         self._model = model
 
-    async def classify(self, message: str, previous_message: str | None = None) -> Intent:
+    async def classify(
+        self,
+        message: str,
+        previous_message: str | None = None,
+        previous_assistant_message: str | None = None,
+    ) -> Intent:
         """Classify the intent of the user message.
 
-        ``previous_message`` is the user's previous message in the conversation,
-        used to keep follow-ups of a planning conversation in n8n.
+        ``previous_message`` is the user's previous message in the conversation and
+        ``previous_assistant_message`` the reply to it. Both are used to keep
+        follow-ups of a planning conversation in n8n.
         """
         if not message or not message.strip():
             return _DEFAULT_INTENT
@@ -261,9 +316,10 @@ class IntentClassifier:
         # Conversation context: a follow-up of a planning conversation stays in
         # planning ("no sé, sugerime vos", "y mañana?"), unless the user now asks
         # explicitly to see or analyse an image.
-        if is_planning_conversation(previous_message) and not is_viewer_or_analysis_request(
-            message
-        ):
+        in_planning = is_planning_conversation(previous_message) or is_planning_question(
+            previous_assistant_message
+        )
+        if in_planning and not is_viewer_or_analysis_request(message):
             logger.info(
                 "intent_classified",
                 extra={"intent": "observation_planning", "reason": "planning_conversation_context"},

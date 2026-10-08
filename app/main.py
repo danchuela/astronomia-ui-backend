@@ -71,6 +71,14 @@ def _previous_user_message(request: AnalyzeRequest) -> str | None:
     return user_messages[-1] if user_messages else None
 
 
+def _previous_assistant_message(request: AnalyzeRequest) -> str | None:
+    """Return the assistant's last reply before the current user message, if any."""
+    for msg in reversed(request.messages or []):
+        if msg.role == "assistant":
+            return msg.content
+    return None
+
+
 async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
     """Select the appropriate gateway based on the orchestration mode."""
     settings = get_settings()
@@ -84,7 +92,9 @@ async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
 
     assert _classifier is not None
     intent = await _classifier.classify(
-        _last_user_message(request), previous_message=_previous_user_message(request)
+        _last_user_message(request),
+        previous_message=_previous_user_message(request),
+        previous_assistant_message=_previous_assistant_message(request),
     )
     logger.info(
         "request_routed",
