@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 
 import httpx
 
+from app import errors
 from app.gateways.base import AnalysisGateway
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 
@@ -39,6 +41,7 @@ class DirectGalaxyGateway(AnalysisGateway):
         if self.api_key:
             headers["X-API-Key"] = self.api_key
         timeout = httpx.Timeout(connect=15.0, read=None, write=30.0, pool=30.0)
+        filt = _ErrorEventFilter(request.request_id)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream(
@@ -50,39 +53,93 @@ class DirectGalaxyGateway(AnalysisGateway):
                     resp.raise_for_status()
                     async for chunk in resp.aiter_bytes():
                         if chunk:
-                            yield chunk
-        except httpx.TimeoutException:
-            yield self._sse_event(
-                "error",
-                {
-                    "type": "error",
-                    "message": "El análisis tardó demasiado. Inténtalo de nuevo.",
-                },
+                            for out in filt.feed(chunk):
+                                yield out
+            for out in filt.finish():
+                yield out
+        except Exception as exc:
+            timed_out = isinstance(exc, httpx.TimeoutException)
+            errors.report_failure(
+                "galaxy",
+                _error_type(exc),
+                errors.describe_exception(exc),
+                request_id=request.request_id,
+                endpoint="/analyze/stream",
             )
-            yield self._sse_event(
-                "end",
-                {
-                    "type": "end",
-                    "request_id": request.request_id,
-                    "status": "error",
-                    "summary": "El análisis tardó demasiado. Inténtalo de nuevo.",
-                },
+            message = (
+                errors.GALAXY_TIMEOUT_MESSAGE if timed_out else errors.friendly_message("galaxy")
             )
-        except httpx.HTTPError as exc:
-            yield self._sse_event(
-                "error",
-                {
-                    "type": "error",
-                    "message": f"Error al comunicar con Galaxy API: {exc}",
-                },
-            )
-            yield self._sse_event(
-                "end",
-                {
-                    "type": "end",
-                    "request_id": request.request_id,
-                    "status": "error",
-                    "summary": "No se pudo completar el análisis por un error de comunicación.",
-                },
-            )
+            for event in self._failure_events(request.request_id, message):
+                yield event
 
+
+def _error_type(exc: Exception) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "timeout"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"http_{exc.response.status_code}"
+    if isinstance(exc, httpx.HTTPError):
+        return "unreachable"
+    return "unexpected"
+
+
+class _ErrorEventFilter:
+    """Passes the Galaxy API SSE stream through, replacing raw error texts.
+
+    The Galaxy API reports internal failures (SDSS, SkyView, the LLM agent...)
+    as an `error` event with the exception text, or as an `end` event with
+    status "error". Those are reported and replaced by a friendly message;
+    every other event is forwarded byte for byte. If the stream breaks after an
+    error without its `end` event, one is added so the frontend and the usage
+    log see a proper ending.
+    """
+
+    def __init__(self, request_id: str) -> None:
+        self._request_id = request_id
+        self._buffer = b""
+        self._saw_error = False
+        self._saw_end = False
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        self._buffer += chunk.replace(b"\r\n", b"\n")
+        out = []
+        while b"\n\n" in self._buffer:
+            raw, self._buffer = self._buffer.split(b"\n\n", 1)
+            out.append(self._process(raw))
+        return out
+
+    def finish(self) -> list[bytes]:
+        out = [self._buffer] if self._buffer else []
+        self._buffer = b""
+        if self._saw_error and not self._saw_end:
+            message = errors.friendly_message("galaxy")
+            out.append(AnalysisGateway._failure_events(self._request_id, message)[1])  # end only
+        return out
+
+    def _process(self, raw: bytes) -> bytes:
+        data_lines = [line[5:].strip() for line in raw.split(b"\n") if line.startswith(b"data:")]
+        try:
+            payload = json.loads(b"\n".join(data_lines)) if data_lines else None
+        except ValueError:
+            payload = None
+        if not isinstance(payload, dict):
+            return raw + b"\n\n"
+        kind = payload.get("type")
+        if kind == "end":
+            self._saw_end = True
+        if kind == "error" or (kind == "end" and payload.get("status") == "error"):
+            if not self._saw_error:
+                self._saw_error = True
+                detail = str(payload.get("message") or payload.get("summary") or "no detail")
+                errors.report_failure(
+                    "galaxy",
+                    "agent_error",
+                    detail,
+                    request_id=self._request_id,
+                    endpoint="/analyze/stream",
+                )
+            message = errors.friendly_message("galaxy")
+            if kind == "error":
+                return AnalysisGateway._sse_event("error", {"type": "error", "message": message})
+            return AnalysisGateway._sse_event("end", {**payload, "summary": message})
+        return raw + b"\n\n"

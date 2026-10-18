@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
-from app import usage_log
+from app import errors, usage_log
 from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
@@ -168,6 +168,14 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
         return response
     except Exception as e:
         logger.exception("analyze_failed", extra={"request_id": request.request_id})
+        module = "n8n" if gateway_name == "n8n" else "galaxy"
+        errors.report_failure(
+            module,
+            "analyze_failed",
+            errors.describe_exception(e),
+            request_id=request.request_id,
+            endpoint="/analyze",
+        )
         usage_log.send_event(
             usage_log.completed_event(
                 request_id=request.request_id,
@@ -181,7 +189,7 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
             detail={
                 "request_id": request.request_id,
                 "status": "error",
-                "summary": f"Error del backend: {str(e)}",
+                "summary": errors.friendly_message(module),
             },
         ) from e
 

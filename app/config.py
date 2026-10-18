@@ -21,6 +21,8 @@ class Settings:
     n8n_webhook_url: str
     n8n_feedback_webhook_url: str
     n8n_log_webhook_url: str
+    n8n_alert_webhook_url: str
+    n8n_alert_token: str
     openai_model: str
     openai_api_key: str
     cors_origins: list[str]
@@ -42,6 +44,9 @@ class Settings:
         n8n_feedback_webhook_url = _env("N8N_FEEDBACK_WEBHOOK_URL", "").rstrip("/")
         # Usage log webhook (see app/usage_log.py). Empty = usage logging disabled.
         n8n_log_webhook_url = _env("N8N_LOG_WEBHOOK_URL", "").rstrip("/")
+        # Failure alerts (see app/errors.py). Empty URL = alerts only logged locally.
+        n8n_alert_webhook_url = _env("N8N_ALERT_WEBHOOK_URL", "").rstrip("/")
+        n8n_alert_token = _env("N8N_ALERT_TOKEN", "")
         openai_model = _env("OPENAI_MODEL", "gpt-6-luna")
         openai_api_key = _env("OPENAI_API_KEY", "")
 
@@ -55,6 +60,8 @@ class Settings:
             n8n_webhook_url=n8n_webhook_url,
             n8n_feedback_webhook_url=n8n_feedback_webhook_url,
             n8n_log_webhook_url=n8n_log_webhook_url,
+            n8n_alert_webhook_url=n8n_alert_webhook_url,
+            n8n_alert_token=n8n_alert_token,
             openai_model=openai_model,
             openai_api_key=openai_api_key,
             cors_origins=cors_origins,
