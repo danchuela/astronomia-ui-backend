@@ -11,7 +11,7 @@ import pytest
 
 from app import errors
 from app.gateways import direct as direct_module
-from app.gateways.direct import DirectGalaxyGateway, _ErrorEventFilter
+from app.gateways.direct import DirectGalaxyGateway, _GalaxyEventFilter
 from app.gateways.n8n import N8nGateway
 from app.schemas import AnalyzeRequest
 
@@ -141,7 +141,7 @@ def _sse(payload: dict[str, Any]) -> bytes:
 
 
 def _run_filter(chunks: list[bytes]) -> list[bytes]:
-    filt = _ErrorEventFilter("req-1")
+    filt = _GalaxyEventFilter("req-1")
     out: list[bytes] = []
     for chunk in chunks:
         out += filt.feed(chunk)

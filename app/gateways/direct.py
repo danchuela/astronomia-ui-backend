@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
-from app import errors
+from app import analysis_actions, errors
 from app.gateways.base import AnalysisGateway
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 
@@ -41,7 +41,7 @@ class DirectGalaxyGateway(AnalysisGateway):
         if self.api_key:
             headers["X-API-Key"] = self.api_key
         timeout = httpx.Timeout(connect=15.0, read=None, write=30.0, pool=30.0)
-        filt = _ErrorEventFilter(request.request_id)
+        filt = _GalaxyEventFilter(request.request_id)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream(
@@ -83,8 +83,8 @@ def _error_type(exc: Exception) -> str:
     return "unexpected"
 
 
-class _ErrorEventFilter:
-    """Passes the Galaxy API SSE stream through, replacing raw error texts.
+class _GalaxyEventFilter:
+    """Passes the Galaxy API SSE stream through, with two rewrites.
 
     The Galaxy API reports internal failures (SDSS, SkyView, the LLM agent...)
     as an `error` event with the exception text, or as an `end` event with
@@ -92,6 +92,9 @@ class _ErrorEventFilter:
     every other event is forwarded byte for byte. If the stream breaks after an
     error without its `end` event, one is added so the frontend and the usage
     log see a proper ending.
+
+    When the object is only placed in the viewer, the summary's list of analyses
+    becomes `suggested_actions` on the `end` event (see app/analysis_actions.py).
     """
 
     def __init__(self, request_id: str) -> None:
@@ -142,4 +145,12 @@ class _ErrorEventFilter:
             if kind == "error":
                 return AnalysisGateway._sse_event("error", {"type": "error", "message": message})
             return AnalysisGateway._sse_event("end", {**payload, "summary": message})
+        if kind in ("summary", "end") and analysis_actions.is_viewer_ready(payload.get("summary")):
+            summary = payload["summary"]
+            rewritten = {**payload, "summary": analysis_actions.shorten_summary(summary)}
+            if kind == "end":
+                rewritten["suggested_actions"] = analysis_actions.suggested_actions(
+                    summary, payload.get("object_name")
+                )
+            return AnalysisGateway._sse_event(kind, rewritten)
         return raw + b"\n\n"
