@@ -22,6 +22,15 @@ class AnalysisGateway(ABC):
     def _sse_event(event_name: str, payload: dict) -> bytes:
         return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n".encode()
 
+    @classmethod
+    def _failure_events(cls, request_id: str, message: str) -> list[bytes]:
+        """`error` + `end` events that close a failed stream with a user-facing message."""
+        end = {"type": "end", "request_id": request_id, "status": "error", "summary": message}
+        return [
+            cls._sse_event("error", {"type": "error", "message": message}),
+            cls._sse_event("end", end),
+        ]
+
     @staticmethod
     def _body(request: AnalyzeRequest) -> dict:
         body = request.model_dump(exclude_none=True)
