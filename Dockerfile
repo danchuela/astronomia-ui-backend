@@ -1,14 +1,15 @@
 FROM python:3.11-slim
 
+COPY --from=ghcr.io/astral-sh/uv:0.13.1 /uv /usr/local/bin/uv
+
 WORKDIR /app
 
-RUN pip install --no-cache-dir \
-    "fastapi>=0.115.0" \
-    "uvicorn>=0.32.0" \
-    "httpx>=0.27.0" \
-    "pydantic>=2.9.0" \
-    "python-dotenv>=1.0.0" \
-    "openai>=1.60.0"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH"
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project --no-cache
 
 COPY app/ ./app/
 
