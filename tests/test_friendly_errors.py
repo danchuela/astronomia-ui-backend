@@ -173,6 +173,23 @@ def test_filter_handles_events_split_across_chunks(reports) -> None:
     assert b"".join(_run_filter(chunks)) == stream
 
 
+def test_unknown_target_clarification_is_not_replaced_or_alerted(reports) -> None:
+    summary = 'No he encontrado un objeto con el nombre "M123". Comprueba la designación.'
+    stream = _sse({"type": "summary", "summary": summary}) + _sse(
+        {
+            "type": "end",
+            "request_id": "req-1",
+            "status": "success",
+            "summary": summary,
+            "artifacts": [],
+            "results": {"target_resolution": {"status": "not_found", "name": "M123"}},
+        }
+    )
+    chunks = [stream[index : index + 7] for index in range(0, len(stream), 7)]
+    assert b"".join(_run_filter(chunks)) == stream
+    assert reports == []
+
+
 def test_filter_replaces_error_and_end(reports) -> None:
     raw = "HTTPSConnectionPool(host='skyserver.sdss.org'): Max retries exceeded"
     stream = (
