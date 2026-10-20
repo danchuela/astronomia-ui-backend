@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 Module = Literal["n8n", "galaxy"]
 
+# Answer language of the request (app/lang.py): Spanish texts unchanged, English added.
 FRIENDLY_MESSAGES: dict[str, str] = {
     "n8n": (
         "La planificación de observaciones y la información general están teniendo "
@@ -47,6 +48,24 @@ GALAXY_TIMEOUT_MESSAGE = (
     "tanto, puedes planificar una observación o preguntar por otro objeto."
 )
 
+FRIENDLY_MESSAGES_EN: dict[str, str] = {
+    "n8n": (
+        "Observation planning and general information are having problems right now. "
+        'While we look into it, you can analyse a galaxy (for example: "Show me M51") '
+        "or try again in a few minutes."
+    ),
+    "galaxy": (
+        "Galaxy analysis is having problems right now. While we look into it, you can "
+        'plan an observation (for example: "What can I see tonight from Madrid?") '
+        "or try again in a few minutes."
+    ),
+}
+
+GALAXY_TIMEOUT_MESSAGE_EN = (
+    "The analysis is taking too long. Try again in a few minutes; in the meantime, "
+    "you can plan an observation or ask about another object."
+)
+
 ALERT_THROTTLE_SECONDS = 300.0
 _ALERT_TIMEOUT_SECONDS = 5.0
 _DETAIL_MAX_CHARS = 300
@@ -58,8 +77,13 @@ _suppressed: dict[tuple[str, str], int] = {}
 _pending_tasks: set[asyncio.Task] = set()
 
 
-def friendly_message(module: str) -> str:
-    return FRIENDLY_MESSAGES.get(module, FRIENDLY_MESSAGES["n8n"])
+def friendly_message(module: str, lang: str = "es") -> str:
+    table = FRIENDLY_MESSAGES_EN if lang == "en" else FRIENDLY_MESSAGES
+    return table.get(module, table["n8n"])
+
+
+def timeout_message(lang: str = "es") -> str:
+    return GALAXY_TIMEOUT_MESSAGE_EN if lang == "en" else GALAXY_TIMEOUT_MESSAGE
 
 
 def describe_exception(exc: BaseException) -> str:

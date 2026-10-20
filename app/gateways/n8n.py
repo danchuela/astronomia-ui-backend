@@ -9,6 +9,7 @@ import httpx
 
 from app import errors
 from app.gateways.base import AnalysisGateway
+from app.lang import request_language
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 
 
@@ -101,7 +102,7 @@ class N8nGateway(AnalysisGateway):
             return AnalyzeResponse(
                 request_id=request.request_id,
                 status="error",
-                summary=errors.friendly_message("n8n"),
+                summary=errors.friendly_message("n8n", request_language(request)),
                 results={},
                 artifacts=[],
                 warnings=[],
@@ -115,7 +116,8 @@ class N8nGateway(AnalysisGateway):
             data = await self._call(request)
         except Exception as exc:
             self._report(exc, request)
-            for event in self._failure_events(request.request_id, errors.friendly_message("n8n")):
+            message = errors.friendly_message("n8n", request_language(request))
+            for event in self._failure_events(request.request_id, message):
                 yield event
             return
 

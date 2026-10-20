@@ -6,6 +6,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
+from app.lang import request_language
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 
 
@@ -42,4 +43,6 @@ class AnalysisGateway(ABC):
             body.setdefault("message", last_user or "")
         if request.message and not request.messages:
             body.setdefault("messages", [{"role": "user", "content": request.message}])
+        # Resolved answer language (app/lang.py), so n8n and the Galaxy API answer alike.
+        body["answer_language"] = request_language(request)
         return body
