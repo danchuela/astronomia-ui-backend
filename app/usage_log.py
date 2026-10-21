@@ -7,7 +7,7 @@ Each request produces two events that are POSTed to an n8n webhook
 (N8N_LOG_WEBHOOK_URL). n8n writes them to Postgres and sends an alert if the
 write fails:
 
-- "received":  the user's message arrived (text, turn, gateway, target...).
+- "received":  the user's message arrived (text, turn, gateway, target, language...).
 - "completed": the answer finished (status, duration, detected object).
 
 Logging is fire-and-forget: events are sent in background tasks with a short
@@ -27,6 +27,7 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.lang import request_language
 from app.schemas import AnalyzeRequest
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,8 @@ def received_event(
         "object_name": (request.target or {}).get("name") if request.target else None,
         "has_image": bool(request.image_data or request.image_url),
         "user_agent": user_agent,
+        # Answer language ("es" | "en"), the same one sent to n8n and the Galaxy API.
+        "language": request_language(request),
     }
 
 
