@@ -22,6 +22,7 @@ from app import errors, usage_log
 from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
+from app.lang import request_language
 from app.router import IntentClassifier
 from app.schemas import AnalyzeRequest, AnalyzeResponse, FeedbackRequest, FeedbackResponse
 
@@ -189,7 +190,7 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
             detail={
                 "request_id": request.request_id,
                 "status": "error",
-                "summary": errors.friendly_message(module),
+                "summary": errors.friendly_message(module, request_language(request)),
             },
         ) from e
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ChatMessage(BaseModel):
@@ -25,6 +25,15 @@ class AnalyzeRequest(BaseModel):
     view_size_arcmin: float | None = None
     view_hips_id: str | None = None
     image_data: str | None = None
+    # Language chosen in the frontend ("es" | "en"). It is only the default: the answer
+    # follows the language of the message (see app/lang.py). Anything else is ignored.
+    language: str | None = None
+
+    @field_validator("language")
+    @classmethod
+    def _known_language(cls, value: str | None) -> str | None:
+        value = (value or "").strip().lower()
+        return value if value in ("es", "en") else None
 
 
 class AnalyzeResponse(BaseModel):
