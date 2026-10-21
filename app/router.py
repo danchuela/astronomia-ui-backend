@@ -50,6 +50,12 @@ _SOLAR_SYSTEM_PATTERNS = [
     r"\bmeteoritos\b",
     r"\bmeteor\b",
     r"\bmeteor\s+shower\b",
+    # English (phase 2, 2026-10-20)
+    r"\bsun\b",
+    r"\bmoon\b",
+    r"\bcomets\b",
+    r"\basteroids\b",
+    r"\bmeteors\b",
 ]
 # Frases que indican intencion EXPLICITA de planificacion observacional.
 # Si aparece cualquiera de estos patrones, el mensaje debe ir SIEMPRE a n8n
@@ -86,6 +92,17 @@ _OBSERVATION_INTENT_PATTERNS = [
     r"\brecom(ie|e)nd\w*",
     # "a simple vista"
     r"\ba\s+simple\s+vista\b",
+    # English equivalents (phase 2, 2026-10-20)
+    r"\b(visibility|observing|observation)\s+charts?\b",
+    r"\bobserv(ing|ation)\s+(windows?|plans?|planning|schedules?)\b",
+    r"\bplan(ning)?\s+(an?\s+|my\s+|the\s+)?observ\w*",
+    r"\bwhen\s+(can|could|should|will)\s+i\s+(see|observe|watch)\b",
+    r"\b(is|are|be)\s+(\w+\s+){0,2}visible\b",
+    r"\bwhat\s+(can|could|should)\s+i\s+(see|observe|watch|look\s+at)\b",
+    r"\bwhat\s+is\s+there\s+to\s+(see|observe)\b",
+    r"\bsuggest\w*",
+    r"\brecommend\w*",
+    r"\bnaked\s+eye\b",
 ]
 # Phrases that ask to SEE or ANALYSE an image. A follow-up with one of these is
 # not treated as a continuation of a planning conversation (see classify()).
@@ -97,6 +114,13 @@ _VIEWER_PATTERNS = [
     r"\binfrarrojo\b",
     r"\bultravioleta\b",
     r"\bvisor\b",
+    r"\bshow(\s+me)?\b",
+    r"\bimages?\b",
+    r"\bphotos?\b",
+    r"\bpictures?\b",
+    r"\binfrared\b",
+    r"\bultraviolet\b",
+    r"\bviewer\b",
 ]
 # Cues that a message was about observing from somewhere at some time.
 # Only used on the PREVIOUS user message, to keep short follow-ups
@@ -106,6 +130,10 @@ _PLANNING_CONTEXT_PATTERNS = [
     r"\besta\s+noche\b",
     r"\bmanana\b",
     r"\bhoy\b",
+    r"\bfrom\s+\w+",
+    r"\btonight\b",
+    r"\btomorrow\b",
+    r"\btoday\b",
 ]
 # Cues that the ASSISTANT's previous reply was the n8n planner asking for a missing
 # detail ("¿en qué fecha?", "¿desde qué ciudad?"). The user's answer ("Hoy",
@@ -126,9 +154,27 @@ _PLANNING_QUESTION_PATTERNS = [
     r"\bubicacion\b",
     r"\bplanific\w*",
     r"\bcartas?\s+de\s+(observacion|visibilidad)\b",
+    r"\bdate\b",
+    r"\bwhat\s+(day|night)\b",
+    r"\bwhen\s+(do\s+you\s+want|would\s+you\s+like|are\s+you\s+planning)\b",
+    r"\bfrom\s+where\b",
+    r"\bwhere\s+(are\s+you|will\s+you\s+be|from)\b",
+    r"\b(which|what)\s+(city|place|location)\b",
+    r"\bcity\b",
+    r"\blocation\b",
+    r"\bplan(s|ning|ned)?\b",  # not "planet"
+    r"\b(visibility|observing|observation)\s+charts?\b",
 ]
 # Sentences that ask for something without a question mark ("Necesito saber desde dónde.")
-_REQUEST_SENTENCE = re.compile(r"\b(necesito\s+saber|necesito\s+que\s+me|indicame|decime|dime)\b")
+_REQUEST_SENTENCE = re.compile(
+    r"\b(necesito\s+saber|necesito\s+que\s+me|indicame|decime|dime"
+    r"|i\s+need\s+to\s+know|tell\s+me|let\s+me\s+know)\b"
+)
+# The missing detail a request sentence must name (Spanish and English).
+_DETAIL_WORDS = re.compile(
+    r"\bfecha\b|\bdesde\s+(que|donde)\b|\bciudad\b|\bubicacion\b"
+    r"|\bdate\b|\bfrom\s+where\b|\bwhere\s+you\b|\bcity\b|\blocation\b"
+)
 
 
 _GENERAL_INFO_PATTERNS = [
@@ -141,6 +187,14 @@ _GENERAL_INFO_PATTERNS = [
     r"\b(cuentame|hablame|describe|explica|explicame)\b",
     r"\b(info|informacion|datos|curiosidades|propiedades)\b",
     r"\b(distancia|magnitud|redshift|corrimiento|constelacion|descubrimiento|historia|peculiar|especial)\b",
+    # English equivalents (phase 2, 2026-10-20)
+    r"\bwhat\s+(is|are)\b",
+    r"\bwhat\s*['’]?s\b",
+    r"\bwhat\s+do\s+you\s+know\s+about\b",
+    r"\bwhat\s+(kind|type)\s+of\s+object\b",
+    r"\btell\s+me\s+(about|more)\b",
+    r"\b(explain|information|facts|properties)\b",
+    r"\b(distance|magnitude|constellation|discovery|history|special)\b",
 ]
 _IMAGE_ANALYSIS_PATTERNS = [
     r"\banaliz(a|ar|ame|alo|ala|alo|ala|emos|is)\b",
@@ -156,6 +210,15 @@ _IMAGE_ANALYSIS_PATTERNS = [
     r"\bcontornos?\b",
     r"\bmed(ir|icion|iciones|idas?)\b",
     r"\bcalcul(a|ar)\b",
+    r"\banaly[sz](e|es|ed|ing|is)\b",
+    r"\bmorpholog(y|ical)\b",
+    r"\bsegment(ation|ed|ing)?\b",
+    r"\bisophotes?\b",
+    r"\bphotometry\b",
+    r"\bbrightness\s+profile\b",
+    r"\bcontours?\b",
+    r"\bmeasure(ment|ments|s)?\b",
+    r"\b(calculate|compute)\b",
 ]
 
 _SYSTEM_PROMPT = """\
@@ -184,6 +247,10 @@ Clasifica el mensaje del usuario en UNA de estas categorias:
    cuerpo u objeto celeste cuando NO piden abrir visor ni analizar imagen.
    Ejemplos: "que es UGC10214", "con que caracteristicas especiales cuenta UGC10214",
    "cuentame sobre M81", "cual es la distancia de M87".
+
+El mensaje puede estar en espanol o en ingles; aplica las mismas reglas.
+Ejemplos en ingles: "analyse M31" y "show me NGC 1300 in infrared" son galaxy_analysis;
+"when can I see Saturn from London" y "what is a black hole" son observation_planning.
 
 Responde SOLO con JSON: {"intent": "galaxy_analysis"} o {"intent": "observation_planning"}
 Si el mensaje es ambiguo o no encaja, responde {"intent": "galaxy_analysis"}.\
@@ -243,9 +310,7 @@ def _asks_planning_detail(sentence: str) -> bool:
     if "?" in sentence:
         return any(re.search(p, normalized) for p in _PLANNING_QUESTION_PATTERNS)
     if _REQUEST_SENTENCE.search(normalized):
-        return bool(
-            re.search(r"\bfecha\b|\bdesde\s+(que|donde)\b|\bciudad\b|\bubicacion\b", normalized)
-        )
+        return bool(_DETAIL_WORDS.search(normalized))
     return False
 
 

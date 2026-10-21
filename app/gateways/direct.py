@@ -9,6 +9,7 @@ import httpx
 
 from app import analysis_actions, errors
 from app.gateways.base import AnalysisGateway
+from app.lang import request_language
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 
 
@@ -41,7 +42,8 @@ class DirectGalaxyGateway(AnalysisGateway):
         if self.api_key:
             headers["X-API-Key"] = self.api_key
         timeout = httpx.Timeout(connect=15.0, read=None, write=30.0, pool=30.0)
-        filt = _GalaxyEventFilter(request.request_id)
+        lang = request_language(request)
+        filt = _GalaxyEventFilter(request.request_id, lang)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream(
@@ -66,9 +68,10 @@ class DirectGalaxyGateway(AnalysisGateway):
                 request_id=request.request_id,
                 endpoint="/analyze/stream",
             )
-            message = (
-                errors.GALAXY_TIMEOUT_MESSAGE if timed_out else errors.friendly_message("galaxy")
-            )
+            if timed_out:
+                message = errors.timeout_message(lang)
+            else:
+                message = errors.friendly_message("galaxy", lang)
             for event in self._failure_events(request.request_id, message):
                 yield event
 
@@ -97,8 +100,9 @@ class _GalaxyEventFilter:
     becomes `suggested_actions` on the `end` event (see app/analysis_actions.py).
     """
 
-    def __init__(self, request_id: str) -> None:
+    def __init__(self, request_id: str, lang: str = "es") -> None:
         self._request_id = request_id
+        self._lang = lang
         self._buffer = b""
         self._saw_error = False
         self._saw_end = False
@@ -115,7 +119,7 @@ class _GalaxyEventFilter:
         out = [self._buffer] if self._buffer else []
         self._buffer = b""
         if self._saw_error and not self._saw_end:
-            message = errors.friendly_message("galaxy")
+            message = errors.friendly_message("galaxy", self._lang)
             out.append(AnalysisGateway._failure_events(self._request_id, message)[1])  # end only
         return out
 
@@ -141,7 +145,7 @@ class _GalaxyEventFilter:
                     request_id=self._request_id,
                     endpoint="/analyze/stream",
                 )
-            message = errors.friendly_message("galaxy")
+            message = errors.friendly_message("galaxy", self._lang)
             if kind == "error":
                 return AnalysisGateway._sse_event("error", {"type": "error", "message": message})
             return AnalysisGateway._sse_event("end", {**payload, "summary": message})
