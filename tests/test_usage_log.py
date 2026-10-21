@@ -69,6 +69,14 @@ def test_received_event_contents():
     assert ev["target"] == {"name": "M51", "view_ra_deg": 202.47}
     assert ev["has_image"] is True
     assert ev["user_agent"] == "Mozilla/5.0"
+    assert ev["language"] == "es"
+
+
+def test_received_event_language_follows_the_message():
+    english = AnalyzeRequest(request_id="r2", message="What can I see tonight from Madrid?")
+    assert usage_log.received_event(english, "n8n", None)["language"] == "en"
+    button_only = AnalyzeRequest(request_id="r3", message="M31", language="en")
+    assert usage_log.received_event(button_only, "galaxy", None)["language"] == "en"
 
 
 def test_send_event_is_noop_without_url(monkeypatch):
