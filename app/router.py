@@ -9,7 +9,7 @@ import re
 import unicodedata
 from typing import Literal
 
-from openai import NOT_GIVEN, OpenAI
+from openai import OpenAI, omit
 
 logger = logging.getLogger(__name__)
 
@@ -407,7 +407,7 @@ class IntentClassifier:
         """Synchronous OpenAI call executed in a thread via asyncio.to_thread."""
         response = self._client.chat.completions.create(
             model=self._model,
-            reasoning_effort="none" if self._model.startswith("gpt-6-luna") else NOT_GIVEN,
+            reasoning_effort="none" if self._model.startswith("gpt-6-luna") else omit,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
