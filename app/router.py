@@ -348,6 +348,7 @@ class IntentClassifier:
         message: str,
         previous_message: str | None = None,
         previous_assistant_message: str | None = None,
+        has_uploaded_image: bool = False,
     ) -> Intent:
         """Classify the intent of the user message.
 
@@ -357,6 +358,8 @@ class IntentClassifier:
         """
         if not message or not message.strip():
             return _DEFAULT_INTENT
+        if has_uploaded_image:
+            return await self._classify_model(message, has_uploaded_image=True)
         if is_solar_system_request(message):
             logger.info(
                 "intent_classified",
@@ -390,8 +393,15 @@ class IntentClassifier:
                 extra={"intent": "observation_planning", "reason": "planning_conversation_context"},
             )
             return "observation_planning"
+        return await self._classify_model(message)
+
+    async def _classify_model(self, message: str, has_uploaded_image: bool = False) -> Intent:
         try:
-            response = await asyncio.to_thread(self._call_openai, message)
+            response = (
+                await asyncio.to_thread(self._call_openai, message, True)
+                if has_uploaded_image
+                else await asyncio.to_thread(self._call_openai, message)
+            )
             data = json.loads(response)
             intent_raw = data.get("intent", _DEFAULT_INTENT)
             if intent_raw not in ("galaxy_analysis", "observation_planning"):
@@ -403,14 +413,26 @@ class IntentClassifier:
             logger.warning("intent_classification_failed", exc_info=True)
             return _DEFAULT_INTENT
 
-    def _call_openai(self, message: str) -> str:
+    def _call_openai(self, message: str, has_uploaded_image: bool = False) -> str:
         """Synchronous OpenAI call executed in a thread via asyncio.to_thread."""
         response = self._client.chat.completions.create(
             model=self._model,
             reasoning_effort="none" if self._model.startswith("gpt-6-luna") else omit,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": _SYSTEM_PROMPT
+                    + (
+                        "\nThe user has an uploaded astronomical image available, independently of the sky viewer. "
+                        "Requests to inspect, segment or measure that file, including implicit follow-ups "
+                        "such as 'this image', go to galaxy_analysis. General astronomical information or "
+                        "observation planning still goes to observation_planning. "
+                        "File bytes are never sent to this classifier."
+                        if has_uploaded_image
+                        else ""
+                    ),
+                },
                 {"role": "user", "content": message},
             ],
             timeout=15,
