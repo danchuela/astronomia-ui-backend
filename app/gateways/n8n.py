@@ -116,7 +116,9 @@ class N8nGateway(AnalysisGateway):
         return _normalize_response(data, request)
 
     async def analyze_stream(self, request: AnalyzeRequest) -> AsyncIterator[bytes]:
-        yield self._sse_event("status", {"type": "status", "message": "Procesando…"})
+        # Progress message in the answer language (it was always Spanish).
+        processing = "Processing…" if request_language(request) == "en" else "Procesando…"
+        yield self._sse_event("status", {"type": "status", "message": processing})
 
         try:
             data = await self._call(request)
