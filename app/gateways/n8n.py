@@ -61,6 +61,12 @@ def _error_type(exc: Exception) -> str:
 
 
 class N8nGateway(AnalysisGateway):
+    @staticmethod
+    def _body(request: AnalyzeRequest) -> dict:
+        body = AnalysisGateway._body(request)
+        body.pop("uploaded_image", None)
+        return body
+
     def __init__(self, webhook_url: str) -> None:
         self.webhook_url = webhook_url.rstrip("/")
 

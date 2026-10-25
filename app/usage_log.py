@@ -104,7 +104,7 @@ def received_event(
         "gateway": gateway,
         "target": target,
         "object_name": (request.target or {}).get("name") if request.target else None,
-        "has_image": bool(request.image_data or request.image_url),
+        "has_image": bool(request.uploaded_image or request.image_data or request.image_url),
         "user_agent": user_agent,
         # Answer language ("es" | "en"), the same one sent to n8n and the Galaxy API.
         "language": request_language(request),
