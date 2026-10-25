@@ -12,6 +12,29 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class UploadedImage(BaseModel):
+    filename: str = Field(min_length=1, max_length=180)
+    data: str = Field(min_length=1, max_length=11184912, repr=False)
+    hdu_index: int | None = Field(default=None, ge=0, le=63)
+
+    @field_validator("filename")
+    @classmethod
+    def safe_filename(cls, value: str) -> str:
+        value = value.replace("\\", "/").rsplit("/", 1)[-1]
+        if any(ord(c) < 32 for c in value) or value.rsplit(".", 1)[-1].lower() not in {
+            "png",
+            "jpg",
+            "jpeg",
+            "tif",
+            "tiff",
+            "fits",
+            "fit",
+            "fts",
+        }:
+            raise ValueError("Supported files: PNG, JPEG, TIFF and 2D FITS")
+        return value
+
+
 class AnalyzeRequest(BaseModel):
     request_id: str
     message: str | None = None
@@ -25,6 +48,7 @@ class AnalyzeRequest(BaseModel):
     view_size_arcmin: float | None = None
     view_hips_id: str | None = None
     image_data: str | None = None
+    uploaded_image: UploadedImage | None = None
     view_metadata: dict[str, Any] = Field(default_factory=dict)
     # Language chosen in the frontend ("es" | "en"). It is only the default: the answer
     # follows the language of the message (see app/lang.py). Anything else is ignored.

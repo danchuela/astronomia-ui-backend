@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
 from app import errors, usage_log
+from app.body_limit import AnalysisBodyLimit
 from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
@@ -86,17 +87,28 @@ async def _select_gateway(request: AnalyzeRequest) -> AnalysisGateway:
     assert _galaxy_gateway is not None
     assert _observation_gateway is not None
 
+    if request.uploaded_image and settings.orchestrator_mode != "auto":
+        return _galaxy_gateway
+
     if settings.orchestrator_mode == "direct":
         return _galaxy_gateway
     if settings.orchestrator_mode == "n8n":
         return _observation_gateway
 
     assert _classifier is not None
-    intent = await _classifier.classify(
-        _last_user_message(request),
-        previous_message=_previous_user_message(request),
-        previous_assistant_message=_previous_assistant_message(request),
-    )
+    if request.uploaded_image:
+        intent = await _classifier.classify(
+            _last_user_message(request),
+            previous_message=_previous_user_message(request),
+            previous_assistant_message=_previous_assistant_message(request),
+            has_uploaded_image=True,
+        )
+    else:
+        intent = await _classifier.classify(
+            _last_user_message(request),
+            previous_message=_previous_user_message(request),
+            previous_assistant_message=_previous_assistant_message(request),
+        )
     logger.info(
         "request_routed",
         extra={"intent": intent, "request_id": request.request_id},
@@ -133,6 +145,7 @@ app = FastAPI(
 )
 
 settings = get_settings()
+app.add_middleware(AnalysisBodyLimit)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
