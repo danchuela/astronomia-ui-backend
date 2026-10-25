@@ -25,6 +25,7 @@ class AnalyzeRequest(BaseModel):
     view_size_arcmin: float | None = None
     view_hips_id: str | None = None
     image_data: str | None = None
+    view_metadata: dict[str, Any] = Field(default_factory=dict)
     # Language chosen in the frontend ("es" | "en"). It is only the default: the answer
     # follows the language of the message (see app/lang.py). Anything else is ignored.
     language: str | None = None

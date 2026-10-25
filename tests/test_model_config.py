@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from openai import NOT_GIVEN
+from openai import omit
 
 from app.config import Settings
 from app.router import IntentClassifier
@@ -31,4 +31,4 @@ def test_router_request_preserves_json_and_legacy_compatibility(model: str) -> N
     if model == "gpt-6-luna":
         assert kwargs["reasoning_effort"] == "none"
     else:
-        assert kwargs["reasoning_effort"] is NOT_GIVEN
+        assert kwargs["reasoning_effort"] is omit
