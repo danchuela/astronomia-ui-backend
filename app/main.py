@@ -20,12 +20,19 @@ from fastapi.responses import Response, StreamingResponse
 
 from app import errors, usage_log
 from app.body_limit import AnalysisBodyLimit
+from app.capacity import RequestCapacity
 from app.config import get_settings
 from app.gateways import DirectGalaxyGateway, N8nGateway
 from app.gateways.base import AnalysisGateway
 from app.lang import request_language
 from app.router import IntentClassifier
-from app.schemas import AnalyzeRequest, AnalyzeResponse, FeedbackRequest, FeedbackResponse
+from app.schemas import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    UploadedImage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +153,7 @@ app = FastAPI(
 
 settings = get_settings()
 app.add_middleware(AnalysisBodyLimit)
+app.add_middleware(RequestCapacity)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -168,7 +176,9 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
         gateway = await _select_gateway(request)
         gateway_name = _gateway_name(gateway)
         usage_log.send_event(
-            usage_log.received_event(request, gateway_name, http_request.headers.get("user-agent"))
+            usage_log.received_event(
+                request, gateway_name, http_request.headers.get("user-agent")
+            )
         )
         response = await gateway.analyze(request)
         usage_log.send_event(
@@ -206,6 +216,24 @@ async def analyze(request: AnalyzeRequest, http_request: Request) -> AnalyzeResp
                 "summary": errors.friendly_message(module, request_language(request)),
             },
         ) from e
+
+
+@app.post("/images/inspect")
+async def inspect_uploaded_image(upload: UploadedImage) -> Response:
+    assert _galaxy_gateway is not None
+    try:
+        response = await _galaxy_gateway.inspect_image(upload)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail="Image inspection unavailable"
+        ) from exc
+    if response.status_code not in (200, 408, 413, 422, 503):
+        raise HTTPException(status_code=502, detail="Image inspection unavailable")
+    return Response(
+        response.content,
+        status_code=response.status_code,
+        media_type="application/json",
+    )
 
 
 @app.post("/feedback", response_model=FeedbackResponse)
@@ -257,12 +285,16 @@ async def feedback(request: FeedbackRequest) -> FeedbackResponse:
 
 
 @app.post("/analyze/stream")
-async def analyze_stream(request: AnalyzeRequest, http_request: Request) -> StreamingResponse:
+async def analyze_stream(
+    request: AnalyzeRequest, http_request: Request
+) -> StreamingResponse:
     started_at = time.monotonic()
     gateway = await _select_gateway(request)
     gateway_name = _gateway_name(gateway)
     usage_log.send_event(
-        usage_log.received_event(request, gateway_name, http_request.headers.get("user-agent"))
+        usage_log.received_event(
+            request, gateway_name, http_request.headers.get("user-agent")
+        )
     )
     return StreamingResponse(
         # Stream passes through unchanged; the wrapper only logs how it ended.

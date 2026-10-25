@@ -4,7 +4,25 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class ImageRegion(BaseModel):
+    left: float = Field(ge=0, le=1, allow_inf_nan=False)
+    top: float = Field(ge=0, le=1, allow_inf_nan=False)
+    right: float = Field(ge=0, le=1, allow_inf_nan=False)
+    bottom: float = Field(ge=0, le=1, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def nonempty(self):
+        if self.right <= self.left or self.bottom <= self.top:
+            raise ValueError("Empty image region")
+        return self
+
+
+class SourcePoint(BaseModel):
+    x: float = Field(ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(ge=0, le=1, allow_inf_nan=False)
 
 
 class ChatMessage(BaseModel):
@@ -16,6 +34,12 @@ class UploadedImage(BaseModel):
     filename: str = Field(min_length=1, max_length=180)
     data: str = Field(min_length=1, max_length=11184912, repr=False)
     hdu_index: int | None = Field(default=None, ge=0, le=63)
+    psf_hdu_index: int | None = Field(default=None, ge=0, le=63)
+    error_hdu_index: int | None = Field(default=None, ge=0, le=63)
+    error_kind: Literal["sigma", "variance", "inverse_variance"] = "sigma"
+    source_point: SourcePoint | None = None
+    region: ImageRegion | None = None
+    uncertainty_samples: Literal[0, 16] = 0
 
     @field_validator("filename")
     @classmethod

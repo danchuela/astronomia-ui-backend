@@ -10,13 +10,22 @@ import httpx
 from app import analysis_actions, errors
 from app.gateways.base import AnalysisGateway
 from app.lang import request_language
-from app.schemas import AnalyzeRequest, AnalyzeResponse
+from app.schemas import AnalyzeRequest, AnalyzeResponse, UploadedImage
 
 
 class DirectGalaxyGateway(AnalysisGateway):
     def __init__(self, base_url: str, api_key: str = "") -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
+
+    async def inspect_image(self, upload: UploadedImage) -> httpx.Response:
+        headers = {"X-API-Key": self.api_key} if self.api_key else {}
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            return await client.post(
+                f"{self.base_url}/images/inspect",
+                json=upload.model_dump(exclude_none=True),
+                headers=headers,
+            )
 
     async def analyze(self, request: AnalyzeRequest) -> AnalyzeResponse:
         url = f"{self.base_url}/analyze"
@@ -25,6 +34,16 @@ class DirectGalaxyGateway(AnalysisGateway):
             headers["X-API-Key"] = self.api_key
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=self._body(request), headers=headers)
+            if resp.status_code in (408, 503):
+                return AnalyzeResponse(
+                    request_id=request.request_id,
+                    status="error",
+                    summary=(
+                        _busy_message(request_language(request))
+                        if resp.status_code == 503
+                        else _upload_timeout_message(request_language(request))
+                    ),
+                )
             resp.raise_for_status()
             data = resp.json()
         return AnalyzeResponse(
@@ -52,6 +71,15 @@ class DirectGalaxyGateway(AnalysisGateway):
                     json=self._body(request),
                     headers=headers,
                 ) as resp:
+                    if resp.status_code in (408, 503):
+                        message = (
+                            _busy_message(lang)
+                            if resp.status_code == 503
+                            else _upload_timeout_message(lang)
+                        )
+                        for event in self._failure_events(request.request_id, message):
+                            yield event
+                        return
                     resp.raise_for_status()
                     async for chunk in resp.aiter_bytes():
                         if chunk:
@@ -74,6 +102,22 @@ class DirectGalaxyGateway(AnalysisGateway):
                 message = errors.friendly_message("galaxy", lang)
             for event in self._failure_events(request.request_id, message):
                 yield event
+
+
+def _busy_message(lang: str) -> str:
+    return (
+        "Hay otro análisis de imagen en curso. Vuelve a intentarlo en unos segundos."
+        if lang == "es"
+        else "Another image analysis is running. Try again in a few seconds."
+    )
+
+
+def _upload_timeout_message(lang: str) -> str:
+    return (
+        "Se ha agotado el tiempo de subida. Vuelve a intentarlo."
+        if lang == "es"
+        else "The upload timed out. Please try again."
+    )
 
 
 def _error_type(exc: Exception) -> str:
@@ -120,11 +164,15 @@ class _GalaxyEventFilter:
         self._buffer = b""
         if self._saw_error and not self._saw_end:
             message = errors.friendly_message("galaxy", self._lang)
-            out.append(AnalysisGateway._failure_events(self._request_id, message)[1])  # end only
+            out.append(
+                AnalysisGateway._failure_events(self._request_id, message)[1]
+            )  # end only
         return out
 
     def _process(self, raw: bytes) -> bytes:
-        data_lines = [line[5:].strip() for line in raw.split(b"\n") if line.startswith(b"data:")]
+        data_lines = [
+            line[5:].strip() for line in raw.split(b"\n") if line.startswith(b"data:")
+        ]
         try:
             payload = json.loads(b"\n".join(data_lines)) if data_lines else None
         except ValueError:
@@ -137,7 +185,9 @@ class _GalaxyEventFilter:
         if kind == "error" or (kind == "end" and payload.get("status") == "error"):
             if not self._saw_error:
                 self._saw_error = True
-                detail = str(payload.get("message") or payload.get("summary") or "no detail")
+                detail = str(
+                    payload.get("message") or payload.get("summary") or "no detail"
+                )
                 errors.report_failure(
                     "galaxy",
                     "agent_error",
@@ -147,11 +197,18 @@ class _GalaxyEventFilter:
                 )
             message = errors.friendly_message("galaxy", self._lang)
             if kind == "error":
-                return AnalysisGateway._sse_event("error", {"type": "error", "message": message})
+                return AnalysisGateway._sse_event(
+                    "error", {"type": "error", "message": message}
+                )
             return AnalysisGateway._sse_event("end", {**payload, "summary": message})
-        if kind in ("summary", "end") and analysis_actions.is_viewer_ready(payload.get("summary")):
+        if kind in ("summary", "end") and analysis_actions.is_viewer_ready(
+            payload.get("summary")
+        ):
             summary = payload["summary"]
-            rewritten = {**payload, "summary": analysis_actions.shorten_summary(summary)}
+            rewritten = {
+                **payload,
+                "summary": analysis_actions.shorten_summary(summary),
+            }
             if kind == "end":
                 rewritten["suggested_actions"] = analysis_actions.suggested_actions(
                     summary, payload.get("object_name")
