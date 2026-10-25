@@ -144,3 +144,13 @@ def test_body_carries_the_answer_language() -> None:
     assert body["answer_language"] == "en"  # the conversation wins over the button
     body = AnalysisGateway._body(AnalyzeRequest(request_id="r", message="M31", language="en"))
     assert body["answer_language"] == "en" and body["language"] == "en"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("request_", "text"), [(EN, "Processing…"), (ES, "Procesando…")])
+async def test_n8n_progress_message_follows_the_language(monkeypatch, request_, text) -> None:
+    client = _failing_client(httpx.ConnectError("x"))
+    monkeypatch.setattr("app.gateways.n8n.httpx.AsyncClient", client)
+    gateway = N8nGateway("https://n8n.test/webhook/astronomia")
+    events = _events([c async for c in gateway.analyze_stream(request_)])
+    assert events[0] == {"type": "status", "message": text}
