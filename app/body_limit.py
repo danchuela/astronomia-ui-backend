@@ -14,7 +14,7 @@ class AnalysisBodyLimit:
         if (
             scope["type"] != "http"
             or scope.get("method") != "POST"
-            or scope.get("path") not in {"/analyze", "/analyze/stream"}
+            or scope.get("path") not in {"/analyze", "/analyze/stream", "/images/inspect"}
         ):
             await self.app(scope, receive, send)
             return

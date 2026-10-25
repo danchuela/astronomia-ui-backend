@@ -21,6 +21,8 @@ def test_gateway_preserves_uploaded_bytes_and_selected_hdu():
         "filename": "source.fits",
         "data": "privatepixels",
         "hdu_index": 2,
+        "error_kind": "sigma",
+        "uncertainty_samples": 0,
     }
     event = received_event(request, "galaxy", None)
     assert event["has_image"] is True
