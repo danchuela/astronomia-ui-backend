@@ -227,7 +227,7 @@ async def inspect_uploaded_image(upload: UploadedImage) -> Response:
         raise HTTPException(
             status_code=502, detail="Image inspection unavailable"
         ) from exc
-    if response.status_code not in (200, 413, 422, 503):
+    if response.status_code not in (200, 408, 413, 422, 503):
         raise HTTPException(status_code=502, detail="Image inspection unavailable")
     return Response(
         response.content,

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app.gateways.base import AnalysisGateway
@@ -57,7 +58,7 @@ def test_inspection_preserves_validation_and_capacity_codes(monkeypatch):
 
     monkeypatch.setattr(main, "_init_gateways", lambda: None)
     with TestClient(main.app) as client:
-        for status in (422, 503):
+        for status in (408, 422, 503):
             monkeypatch.setattr(
                 main,
                 "_galaxy_gateway",
@@ -94,3 +95,40 @@ def test_capacity_response_is_not_reported_as_a_broken_science_module(monkeypatc
     response = asyncio.run(DirectGalaxyGateway("http://science").analyze(request))
     assert response.status == "error" and "otro análisis" in response.summary
     assert "problemas" not in response.summary
+
+
+@pytest.mark.parametrize("idle,total", [(0.01, 1.0), (1.0, 0.01)])
+def test_incomplete_upload_releases_bff_capacity(monkeypatch, idle, total):
+    from app import body_limit
+    from app.capacity import RequestCapacity
+
+    monkeypatch.setattr(body_limit, "BODY_IDLE_SECONDS", idle)
+    monkeypatch.setattr(body_limit, "BODY_TOTAL_SECONDS", total)
+
+    async def app(scope, receive, send):
+        await receive()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    wrapped = RequestCapacity(body_limit.AnalysisBodyLimit(app))
+
+    async def check():
+        messages = []
+
+        async def send(message):
+            messages.append(message)
+
+        async def incomplete():
+            await asyncio.sleep(3600)
+
+        async def complete():
+            return {"type": "http.request", "body": b"{}", "more_body": False}
+
+        scope = {"type": "http", "method": "POST", "path": "/images/inspect"}
+        await wrapped(scope, incomplete, send)
+        assert messages[0]["status"] == 408 and wrapped._slots._value == 4
+        messages.clear()
+        await wrapped(scope, complete, send)
+        assert messages[0]["status"] == 200
+
+    asyncio.run(check())

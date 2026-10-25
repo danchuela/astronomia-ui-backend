@@ -34,11 +34,15 @@ class DirectGalaxyGateway(AnalysisGateway):
             headers["X-API-Key"] = self.api_key
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=self._body(request), headers=headers)
-            if resp.status_code == 503:
+            if resp.status_code in (408, 503):
                 return AnalyzeResponse(
                     request_id=request.request_id,
                     status="error",
-                    summary=_busy_message(request_language(request)),
+                    summary=(
+                        _busy_message(request_language(request))
+                        if resp.status_code == 503
+                        else _upload_timeout_message(request_language(request))
+                    ),
                 )
             resp.raise_for_status()
             data = resp.json()
@@ -67,10 +71,13 @@ class DirectGalaxyGateway(AnalysisGateway):
                     json=self._body(request),
                     headers=headers,
                 ) as resp:
-                    if resp.status_code == 503:
-                        for event in self._failure_events(
-                            request.request_id, _busy_message(lang)
-                        ):
+                    if resp.status_code in (408, 503):
+                        message = (
+                            _busy_message(lang)
+                            if resp.status_code == 503
+                            else _upload_timeout_message(lang)
+                        )
+                        for event in self._failure_events(request.request_id, message):
                             yield event
                         return
                     resp.raise_for_status()
@@ -102,6 +109,14 @@ def _busy_message(lang: str) -> str:
         "Hay otro análisis de imagen en curso. Vuelve a intentarlo en unos segundos."
         if lang == "es"
         else "Another image analysis is running. Try again in a few seconds."
+    )
+
+
+def _upload_timeout_message(lang: str) -> str:
+    return (
+        "Se ha agotado el tiempo de subida. Vuelve a intentarlo."
+        if lang == "es"
+        else "The upload timed out. Please try again."
     )
 
 
