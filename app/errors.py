@@ -86,6 +86,16 @@ def timeout_message(lang: str = "es") -> str:
     return GALAXY_TIMEOUT_MESSAGE_EN if lang == "en" else GALAXY_TIMEOUT_MESSAGE
 
 
+def resolution_unavailable_message(lang: str = "es") -> str:
+    return (
+        "Ahora no puedo consultar los catálogos para localizar ese objeto. "
+        "Vuelve a intentarlo en unos minutos o indica sus coordenadas."
+        if lang == "es"
+        else "I cannot currently query the catalogues to locate that object. "
+        "Please try again in a few minutes or provide its coordinates."
+    )
+
+
 def describe_exception(exc: BaseException) -> str:
     text = str(exc).strip()
     return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
