@@ -150,6 +150,7 @@ class _GalaxyEventFilter:
         self._buffer = b""
         self._saw_error = False
         self._saw_end = False
+        self._error_message: str | None = None
 
     def feed(self, chunk: bytes) -> list[bytes]:
         self._buffer += chunk.replace(b"\r\n", b"\n")
@@ -163,7 +164,7 @@ class _GalaxyEventFilter:
         out = [self._buffer] if self._buffer else []
         self._buffer = b""
         if self._saw_error and not self._saw_end:
-            message = errors.friendly_message("galaxy", self._lang)
+            message = self._error_message or errors.friendly_message("galaxy", self._lang)
             out.append(
                 AnalysisGateway._failure_events(self._request_id, message)[1]
             )  # end only
@@ -183,6 +184,7 @@ class _GalaxyEventFilter:
         if kind == "end":
             self._saw_end = True
         if kind == "error" or (kind == "end" and payload.get("status") == "error"):
+            resolution_failed = payload.get("error_code") == "target_resolution_unavailable"
             if not self._saw_error:
                 self._saw_error = True
                 detail = str(
@@ -190,12 +192,17 @@ class _GalaxyEventFilter:
                 )
                 errors.report_failure(
                     "galaxy",
-                    "agent_error",
+                    "resolver_unavailable" if resolution_failed else "agent_error",
                     detail,
                     request_id=self._request_id,
                     endpoint="/analyze/stream",
                 )
-            message = errors.friendly_message("galaxy", self._lang)
+            message = (
+                errors.resolution_unavailable_message(self._lang)
+                if resolution_failed
+                else errors.friendly_message("galaxy", self._lang)
+            )
+            self._error_message = message
             if kind == "error":
                 return AnalysisGateway._sse_event(
                     "error", {"type": "error", "message": message}

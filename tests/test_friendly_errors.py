@@ -219,6 +219,32 @@ def test_filter_adds_end_after_error_without_end(reports) -> None:
     assert events[1]["status"] == "error" and events[1]["request_id"] == "req-1"
 
 
+@pytest.mark.parametrize("lang", ["es", "en"])
+@pytest.mark.parametrize("terminal", [True, False])
+def test_resolver_failure_is_specific_safe_and_terminal(reports, lang, terminal) -> None:
+    filt = _GalaxyEventFilter("req-1", lang)
+    payload = {
+        "type": "end" if terminal else "error",
+        "status": "error",
+        "error_code": "target_resolution_unavailable",
+        "summary" if terminal else "message": "technical private host traceback",
+    }
+    stream = _sse(payload)
+    chunks = [stream[i : i + 7] for i in range(0, len(stream), 7)]
+    output = []
+    for chunk in chunks:
+        output.extend(filt.feed(chunk))
+    output.extend(filt.finish())
+    events = _events(output)
+    assert sum(event["type"] == "end" for event in events) == 1
+    assert events[-1]["status"] == "error"
+    assert events[-1]["summary"] == errors.resolution_unavailable_message(lang)
+    assert "technical" not in json.dumps(events)
+    assert reports == [
+        ("galaxy", "resolver_unavailable", "technical private host traceback", "req-1")
+    ]
+
+
 @pytest.mark.asyncio
 async def test_galaxy_unreachable_is_friendly(monkeypatch, reports) -> None:
     class _Client:
