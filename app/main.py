@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
-from app import errors, usage_log
+from app import errors, hips, usage_log
 from app.body_limit import AnalysisBodyLimit
 from app.capacity import RequestCapacity
 from app.config import get_settings
@@ -139,6 +139,7 @@ async def lifespan(app: FastAPI):
         extra={"orchestrator_mode": settings.orchestrator_mode, "event": "startup"},
     )
     yield
+    await hips.service.close()
     global _galaxy_gateway, _observation_gateway, _classifier
     _galaxy_gateway = None
     _observation_gateway = None
@@ -161,6 +162,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+app.include_router(hips.router)
 
 
 @app.get("/health")
