@@ -267,3 +267,22 @@ def test_full_image_properties_are_preserved_for_aladin(service):
         response = client.get(meta["path"] + "/properties")
         assert response.status_code == 200 and response.content == PROPERTIES
         assert b"dataproduct_type = image" in response.content
+
+
+@pytest.mark.parametrize(
+    ("survey", "host"),
+    [
+        ("CDS/P/GALEXGR6/AIS/FUV", "irsa.ipac.caltech.edu"),
+        ("CDS/P/GALEXGR6/AIS/NUV", "irsa.ipac.caltech.edu"),
+        ("ESDC/P/XMM/EPIC-RGB", "esdchips.esac.esa.int"),
+        ("erosita/dr1/rate/rgb", "erosita.mpe.mpg.de"),
+    ],
+)
+def test_ultraviolet_and_xray_products_outside_the_cds(survey, host):
+    roots = hips.SURVEYS[survey]
+    assert roots and all(root.startswith(f"https://{host}/") for root in roots)
+    assert not any("unistra.fr" in root for root in roots)
+    product = hips.parse_properties(
+        PROPERTIES.replace(b"CDS/P/SDSS9/color", survey.encode()), survey
+    )
+    assert product.public(roots[0])["path"].endswith("/" + survey)
