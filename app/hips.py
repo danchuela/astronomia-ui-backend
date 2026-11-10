@@ -44,6 +44,12 @@ SURVEYS: dict[str, tuple[str, ...]] = {
     "CDS/P/RASS": cds("RASS"),
     "CDS/P/NVSS": ("https://casda.csiro.au/hips/NVSS", *cds("NVSS/intensity")),
     "xcatdb/P/XMM/PN/color": cds("SSC/xcatdb_P_XMM_PN_color"),
+    # Products hosted outside the CDS (incident of 2026-10-28). They are other products,
+    # not replicas of the ones above, so the viewer offers them under their own ids.
+    "CDS/P/GALEXGR6/AIS/FUV": (IRSA + "GALEX/GR6-03-2014/AIS-FD",),
+    "CDS/P/GALEXGR6/AIS/NUV": (IRSA + "GALEX/GR6-03-2014/AIS-ND",),
+    "ESDC/P/XMM/EPIC-RGB": ("https://esdchips.esac.esa.int/XMM-Newton/EPIC-RGB",),
+    "erosita/dr1/rate/rgb": ("https://erosita.mpe.mpg.de/erodat/static/hips/eRASS1_RGB_Rate_c010",),
 }
 MAX_BODY = 8 * 1024 * 1024
 MAX_CACHE_BYTES = 32 * 1024 * 1024
